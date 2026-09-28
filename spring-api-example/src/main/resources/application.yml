@@ -1,0 +1,52 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: spring-api-example
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# security-platform-lib configuration - see root README "Configuration examples" section.
+security-platform:
+  enabled: true
+  authentication-required: true
+  jwt:
+    enabled: true
+    # DEV-ONLY symmetric secret; use jwk-set-uri + an asymmetric algorithm in production.
+    hmac-secret: "demo-only-secret-key-not-for-production-use!!"
+    authority-claim: roles
+    authority-prefix: "ROLE_"
+  events:
+    logging-consumer-enabled: true
+
+# http-client-lib configuration
+http-client:
+  enabled: true
+  default-timeout: 5s
+  connect-timeout: 2s
+  retry:
+    max-attempts: 3
+    initial-backoff: 100ms
+    backoff-multiplier: 2.0
+    max-backoff: 2s
+    retryable-status-codes: [502, 503, 504]
+    idempotent-only: true
+  events:
+    logging-consumer-enabled: true
+
+# Base URL of the (in this demo, in-process) downstream inventory service.
+downstream:
+  base-url: http://localhost:8081
+
+logging:
+  level:
+    com.platform: DEBUG

@@ -1,0 +1,164 @@
+name: common-platform
+
+networks:
+  common-platform-net:
+    name: common-platform-net
+
+volumes:
+  postgres-data:
+
+services:
+  # --- PostgreSQL: Keycloak's backing store ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: common-platform-postgres
+    networks: [common-platform-net]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-keycloak}
+      POSTGRES_USER: ${POSTGRES_USER:-keycloak}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-keycloak-dev-only-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-keycloak} -d ${POSTGRES_DB:-keycloak}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Keycloak: OAuth2/OIDC provider, realm auto-imported at startup (no manual UI steps) ---
+  keycloak:
+    # Pin a specific recent stable Quarkus-based Keycloak release. Any 24.x/25.x/26.x image
+    # works the same way for this demo; bump the tag as newer stable releases ship.
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: common-platform-keycloak
+    command: ["start-dev", "--import-realm"]
+    networks:
+      common-platform-net:
+        # Fixed hostname => fixed issuer, see infra/README.md "Networking & issuer consistency".
+        aliases: ["keycloak"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-keycloak}
+      KC_DB_USERNAME: ${POSTGRES_USER:-keycloak}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-keycloak-dev-only-password}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin-dev-only-password}
+      # Fixed hostname (not derived from the request's Host header) so the issuer/JWKS URLs are
+      # identical for host-side curl (localhost:8080) and container-to-container (keycloak:8080).
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-keycloak}
+      KC_HOSTNAME_PORT: "8080"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm:/opt/keycloak/data/import
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >
+          exec 3<>/dev/tcp/127.0.0.1/9000;
+          echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          cat <&3 | grep -q '200 OK'
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # --- downstream-api: real, separately-deployed resource server called via http-client-lib ---
+  downstream-api:
+    build:
+      context: ..
+      dockerfile: downstream-api/Dockerfile
+    container_name: common-platform-downstream-api
+    networks:
+      common-platform-net:
+        aliases: ["downstream-api"]
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      JAVA_TOOL_OPTIONS: ${DOWNSTREAM_API_JAVA_TOOL_OPTIONS:-}
+      OTEL_SERVICE_NAME: downstream-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+    ports:
+      - "${DOWNSTREAM_API_PORT:-8082}:8082"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- --tries=1 http://localhost:8082/actuator/health/readiness | grep -q UP",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # --- spring-api-example: the platform demo API (real Keycloak JWT validation, docker profile) ---
+  spring-api-example:
+    build:
+      context: ..
+      dockerfile: spring-api-example/Dockerfile
+    container_name: common-platform-spring-api-example
+    networks:
+      common-platform-net:
+        aliases: ["spring-api-example"]
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      downstream-api:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      JAVA_TOOL_OPTIONS: ${SPRING_API_EXAMPLE_JAVA_TOOL_OPTIONS:-}
+      OTEL_SERVICE_NAME: spring-api-example
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+    ports:
+      - "${SPRING_API_EXAMPLE_PORT:-8081}:8081"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- --tries=1 http://localhost:8081/actuator/health/readiness | grep -q UP",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # --- Optional observability: `docker compose --profile observability up` ---
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: common-platform-otel-collector
+    profiles: ["observability"]
+    networks: [common-platform-net]
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    container_name: common-platform-jaeger
+    profiles: ["observability"]
+    networks: [common-platform-net]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI

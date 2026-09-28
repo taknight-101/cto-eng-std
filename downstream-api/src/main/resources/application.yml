@@ -1,0 +1,36 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: downstream-api
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# Fixed Keycloak hostname (KC_HOSTNAME=keycloak, see infra/README.md) means this single issuer
+# works both from inside docker-compose (container DNS) and from the bare host (with a
+# `127.0.0.1 keycloak` hosts-file entry) - no separate docker/local profile needed here.
+security-platform:
+  enabled: true
+  authentication-required: true
+  jwt:
+    enabled: true
+    jwk-set-uri: http://keycloak:8080/realms/common-platform/protocol/openid-connect/certs
+    issuer: http://keycloak:8080/realms/common-platform
+    audience: common-platform-api
+    authority-claim: roles
+    authority-prefix: "ROLE_"
+  events:
+    logging-consumer-enabled: true
+
+logging:
+  level:
+    com.platform: DEBUG

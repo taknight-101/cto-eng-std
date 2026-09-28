@@ -1,0 +1,10 @@
+target/
+*.class
+
+# Local-only, contains dev secrets copied from .env.example - never commit the real file.
+infra/.env
+
+.idea/
+*.iml
+.vscode/
+.DS_Store

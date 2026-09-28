@@ -1,0 +1,167 @@
+{
+  "realm": "common-platform",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 300,
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "USER", "description": "Basic authenticated user" },
+      { "name": "ADMIN", "description": "Administrative user" },
+      {
+        "name": "DOWNSTREAM_ACCESS",
+        "description": "Allowed to call downstream-api service-to-service endpoints"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "operators",
+      "realmRoles": ["USER", "DOWNSTREAM_ACCESS"]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "platform-roles",
+      "description": "Flattens realm_access.roles into a top-level 'roles' claim (matches JwtAuthorityMappers.fromClaim(\"roles\", ...) in security-platform-lib)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "platform-audience",
+      "description": "Sets aud=common-platform-api so security-platform.jwt.audience validation is actually exercised",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "common-platform-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "common-platform-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "defaultDefaultClientScopes": [
+    "platform-roles",
+    "platform-audience",
+    "profile",
+    "email"
+  ],
+  "clients": [
+    {
+      "clientId": "interactive-client",
+      "name": "Interactive browser client (authorization_code + PKCE)",
+      "description": "Public client for the browser authorization-code flow. direct-access-grants is also enabled so the automated smoke test can exercise the same client via the (test-only) password grant without a browser.",
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "enabled": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "http://localhost:8081/login/oauth2/code/*",
+        "http://localhost:8080/realms/common-platform/account/*",
+        "http://localhost:18080/*"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "profile",
+        "email",
+        "roles",
+        "platform-roles",
+        "platform-audience"
+      ]
+    },
+    {
+      "clientId": "service-client",
+      "name": "Service-to-service client (client_credentials)",
+      "description": "Confidential client used by spring-api-example's ClientCredentialsAuthMiddleware to call downstream-api.",
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "enabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "service-client-secret-dev-only",
+      "defaultClientScopes": ["profile", "platform-roles", "platform-audience"]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "alice@example.local",
+      "firstName": "Alice",
+      "lastName": "User",
+      "credentials": [
+        { "type": "password", "value": "password", "temporary": false }
+      ],
+      "realmRoles": ["USER"]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "bob@example.local",
+      "firstName": "Bob",
+      "lastName": "User",
+      "credentials": [
+        { "type": "password", "value": "password", "temporary": false }
+      ],
+      "realmRoles": ["USER", "DOWNSTREAM_ACCESS"],
+      "groups": ["/operators"]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin@example.local",
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        { "type": "password", "value": "password", "temporary": false }
+      ],
+      "realmRoles": ["USER", "ADMIN", "DOWNSTREAM_ACCESS"]
+    },
+    {
+      "username": "service-account-service-client",
+      "enabled": true,
+      "serviceAccountClientId": "service-client",
+      "realmRoles": ["DOWNSTREAM_ACCESS"]
+    }
+  ]
+}

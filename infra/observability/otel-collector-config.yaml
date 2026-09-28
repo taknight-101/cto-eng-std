@@ -1,0 +1,29 @@
+# Minimal OTel Collector config: receive OTLP from the two Spring apps (only if they're started
+# with the optional Java agent - see infra/README.md "Optional observability"), forward traces
+# to Jaeger. No metrics/logs pipeline - kept intentionally minimal per infra/README.md's
+# "don't add infrastructure just to have more containers" principle.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  logging:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, logging]

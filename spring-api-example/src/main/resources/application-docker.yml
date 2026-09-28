@@ -1,0 +1,33 @@
+# Activated via SPRING_PROFILES_ACTIVE=docker (set on the spring-api-example service in
+# infra/docker-compose.yml). Overrides just the properties that differ from application.yml:
+# real Keycloak JWT validation instead of the HMAC demo secret, and the real, separately
+# deployed downstream-api instead of the in-process InventoryController.
+security-platform:
+  jwt:
+    enabled: true
+    hmac-secret: # unset the demo secret
+    jwk-set-uri: http://keycloak:8080/realms/common-platform/protocol/openid-connect/certs
+    issuer: http://keycloak:8080/realms/common-platform
+    audience: common-platform-api
+    authority-claim: roles
+    authority-prefix: "ROLE_"
+
+downstream:
+  base-url: http://downstream-api:8082
+
+# Client-credentials registration used by OAuth2ClientConfig/ClientCredentialsAuthMiddleware
+# (only active under this profile) to call downstream-api service-to-service.
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          downstream-service:
+            provider: keycloak
+            client-id: service-client
+            # DEV-ONLY secret, matches infra/keycloak/realm/common-platform-realm.json.
+            client-secret: "service-client-secret-dev-only"
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            issuer-uri: http://keycloak:8080/realms/common-platform
